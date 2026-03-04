@@ -1,0 +1,60 @@
+{
+  "name": "msw-azure-service-bus",
+  "version": "1.0.0",
+  "description": "TypeScript Azure Service Bus AMQP emulator for local testing with MSW",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "engines": { "node": ">=22" },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "!dist/tests/**"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "dev": "tsc -w -p tsconfig.json",
+    "demo": "node dist/demo.js",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test": "npm run build && node --test dist/tests/**/*.test.js"
+  },
+  "keywords": [
+    "azure",
+    "service-bus",
+    "amqp",
+    "emulator",
+    "msw",
+    "typescript",
+    "testing"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/allanhvam/msw-azure-service-bus.git"
+  },
+  "author": "Allan Hvam",
+  "license": "ISC",
+  "devDependencies": {
+    "@azure/identity": "^4.13.0",
+    "@azure/service-bus": "^7.9.5",
+    "@eslint/js": "^10.0.0",
+    "@stylistic/eslint-plugin": "^5.1.0",
+    "@types/node": "^25.3.1",
+    "eslint": "^10.0.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-only-warn": "^1.1.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.43.0"
+  },
+  "peerDependencies": {
+    "msw": "^2.12.10"
+  }
+}
