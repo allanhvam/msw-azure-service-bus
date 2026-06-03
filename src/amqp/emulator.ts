@@ -36,6 +36,7 @@ import {
   sendDetach,
   sendDisposition,
   sendDispositionAck,
+  sendDispositionRejected,
   sendDispositionReleased,
   sendEnd,
   sendEndWithError,
@@ -48,6 +49,11 @@ import {
 } from "./emulator/responders.js";
 import { AMQP_PROTOCOL_VERSION, isAmqpHeader, parseAmqpProtocolHeader } from "./frame.js";
 import type { AmqpFrame, ParsedDetach, ParsedDisposition, ParsedFlow, ParsedTransfer } from "./types/protocol.js";
+import {
+  estimateBrokeredBatchSizeBytes,
+  getMaxMessageSizeBytes,
+} from "./messages/message-size.js";
+import type { ServiceBusTier } from "./types/ServiceBusTier.js";
 
 const textEncoder = new TextEncoder();
 
@@ -55,6 +61,7 @@ type EmulatorOptions = {
   debugEnabled?: boolean;
   lockDurationInMs?: number;
   maxDeliveryCount?: number;
+  tier?: ServiceBusTier;
 };
 
 export class AmqpProtocolEmulator {
@@ -64,6 +71,7 @@ export class AmqpProtocolEmulator {
     debugEnabled: false,
     lockDurationInMs: 2_000,
     maxDeliveryCount: 10,
+    tier: "basic",
   };
   private readonly defaultSessionWindow = 5_000;
 
@@ -83,6 +91,14 @@ export class AmqpProtocolEmulator {
     if (typeof options.maxDeliveryCount === "number" && Number.isFinite(options.maxDeliveryCount)) {
       this.options.maxDeliveryCount = Math.max(1, Math.floor(options.maxDeliveryCount));
     }
+
+    if (options.tier) {
+      this.options.tier = options.tier;
+    }
+  }
+
+  private getMaxMessageSizeBytes(): number {
+    return getMaxMessageSizeBytes(this.options.tier);
   }
 
   private logDebug(message: string, payload?: unknown): void {
@@ -1071,7 +1087,11 @@ export class AmqpProtocolEmulator {
 
     if (isQueueSendLink && transfer && link) {
       const transferResolution = this.resolveTransferPayload(connection, client, channel, link, transfer);
-      if (!transferResolution.ignored && !transferResolution.aborted && transferResolution.payload) {
+      const isFragmentInProgress = transfer.more === true;
+
+      if (isFragmentInProgress) {
+        this.flushEligibleReceivers(connection, client);
+      } else if (!transferResolution.ignored && !transferResolution.aborted && transferResolution.payload) {
         const sectionValidation = validateBareMessageSections(transferResolution.payload);
         if (!sectionValidation.isValid) {
           this.endSessionWithError(
@@ -1096,6 +1116,23 @@ export class AmqpProtocolEmulator {
           return;
         }
 
+        const maxMessageSizeBytes = this.getMaxMessageSizeBytes();
+        const brokeredMessageSizeBytes = estimateBrokeredBatchSizeBytes(decodedTransferMessages);
+        if (brokeredMessageSizeBytes > maxMessageSizeBytes) {
+          sendDispositionRejected(
+            client,
+            channel,
+            deliveryId,
+            "amqp:link:message-size-exceeded",
+            `Message size ${brokeredMessageSizeBytes} exceeds the ${this.options.tier} tier limit of ${maxMessageSizeBytes} bytes`,
+          );
+          this.flushEligibleReceivers(connection, client);
+          this.updateSessionFlowAfterInboundTransfer(session);
+          connection.sessionFlowByChannel.set(channel, session);
+          connection.nextDeliveryId += 1;
+          return;
+        }
+
         for (const decodedTransferMessage of decodedTransferMessages) {
           const annotationValidation = validateInboundMessageAnnotations(decodedTransferMessage);
           if (!annotationValidation.isValid) {
@@ -1116,16 +1153,15 @@ export class AmqpProtocolEmulator {
         }
 
         sendDisposition(client, channel, deliveryId, true);
-      } else if (!transferResolution.ignored) {
-        sendDisposition(client, channel, deliveryId, true);
+        this.flushEligibleReceivers(connection, client);
       }
-
-      this.flushEligibleReceivers(connection, client);
     }
 
     this.updateSessionFlowAfterInboundTransfer(session);
     connection.sessionFlowByChannel.set(channel, session);
-    connection.nextDeliveryId += 1;
+    if (!(isQueueSendLink && transfer?.more === true)) {
+      connection.nextDeliveryId += 1;
+    }
   }
 
   private handleClose(connection: EmulatorConnection, client: ClientConnection, channel: number): void {

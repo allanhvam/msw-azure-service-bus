@@ -16,6 +16,7 @@ import {
 } from "../amqp/codec.js";
 import { AmqpProtocolEmulator } from "../amqp/emulator.js";
 import { parseAmqpFrame } from "../amqp/frame.js";
+import { getMaxMessageSizeBytes } from "../amqp/messages/message-size.js";
 
 function createProtocolHeader(protocolId: number, major: number, minor: number, revision: number): Uint8Array {
   return new Uint8Array([0x41, 0x4d, 0x51, 0x50, protocolId, major, minor, revision]);
@@ -944,6 +945,48 @@ describe("AMQP emulator protocol conformance", () => {
     );
 
     assert.equal((queues.get(queueName) ?? [])[0]?.deliveryCount, 2);
+  });
+
+  test("basic tier rejects oversized queue send with message-size-exceeded disposition", { timeout: 20000 }, () => {
+    const queues = new Map<string, Array<{ messageId: string; body: unknown; deliveryCount: number }>>();
+    const queueName = "phase4-tier-basic-limit";
+    const emulator = new AmqpProtocolEmulator(queues as Map<string, never[]>);
+    emulator.setOptions({ tier: "basic" });
+
+    const sentFrames: Uint8Array[] = [];
+    const client = createStubClient(sentFrames);
+
+    bootstrapSenderLink({
+      emulator,
+      connectionId: "phase4-tier-basic-limit",
+      client,
+      channel: 15,
+      handle: 1,
+      queueName,
+    });
+
+    const baseline = sentFrames.length;
+    const oversizedBody = "x".repeat(getMaxMessageSizeBytes("basic"));
+    const payload = encodeAmqpMessage({ messageId: "tier-oversized", body: oversizedBody });
+
+    emulator.handleMessage(
+      "phase4-tier-basic-limit",
+      client,
+      undefined,
+      parseAmqpFrame(createTransferFrame({
+        channel: 15,
+        handle: 1,
+        deliveryId: 1,
+        deliveryTag: "tier-oversized-tag",
+        payload,
+      })),
+    );
+
+    const dispositionFrames = sentFrames.slice(baseline).map((bytes) => parseAmqpFrame(bytes));
+    const rejectedDisposition = dispositionFrames.find((frame) => frame?.performative === "disposition");
+    assert.equal(rejectedDisposition !== undefined, true);
+    assert.equal(containsAscii(rejectedDisposition?.body as Uint8Array, "message-size-exceeded"), true);
+    assert.equal((queues.get(queueName) ?? []).length, 0);
   });
 
   test("rejected disposition dead-letters delivery", { timeout: 20000 }, () => {
