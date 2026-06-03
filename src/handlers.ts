@@ -3,6 +3,7 @@ import { AmqpProtocolEmulator } from "./amqp/emulator.js";
 import { parseServiceBusAmqpRequest, toBytes } from "./amqp/frame.js";
 import type { AmqpPerformative } from "./amqp/types/protocol.js";
 import type { QueueMessage } from "./amqp/types/emulator.js";
+import type { ServiceBusTier } from "./amqp/types/ServiceBusTier.js";
 
 export type ServiceBusAmqpRequest = {
   timestamp: string;
@@ -25,20 +26,30 @@ export type ServiceBusOptions = {
   verbose?: boolean;
   lockDurationInMs?: number;
   maxDeliveryCount?: number;
+  /**
+   * Namespace SKU tier used to apply tier-specific quotas (for example max message size).
+   * Defaults to `"basic"` when omitted.
+   *
+   * @see https://learn.microsoft.com/en-us/azure/service-bus-messaging/service-bus-quotas
+   */
+  tier?: ServiceBusTier;
 };
 
 const mockQueues = new Map<string, QueueMessage[]>();
 const amqpEmulator = new AmqpProtocolEmulator(mockQueues);
 
 export function handlers({ options = {} }: { options?: ServiceBusOptions } = {}) {
-  const { verbose = false, lockDurationInMs = 60_000, maxDeliveryCount = 10 } = options;
-  const serviceBusWs = ws.link(/^wss:\/\/.*\/\$servicebus\/websocket(?:\?.*)?$/);
+  const { verbose = false, lockDurationInMs = 60_000, maxDeliveryCount = 10, tier = "basic" } = options;
 
+  amqpEmulator.reset();
   amqpEmulator.setOptions({
     debugEnabled: verbose,
     lockDurationInMs,
     maxDeliveryCount,
+    tier,
   });
+
+  const serviceBusWs = ws.link(/^wss:\/\/.*\/\$servicebus\/websocket(?:\?.*)?$/);
 
   return [
     serviceBusWs.addEventListener("connection", ({ client }) => {

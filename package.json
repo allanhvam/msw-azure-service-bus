@@ -1,6 +1,6 @@
 {
   "name": "msw-azure-service-bus",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "TypeScript Azure Service Bus AMQP emulator for local testing with MSW",
   "type": "module",
   "main": "dist/index.js",
@@ -15,7 +15,8 @@
   "files": [
     "dist",
     "README.md",
-    "!dist/tests/**"
+    "!dist/tests/**",
+    "!dist/demo*"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",

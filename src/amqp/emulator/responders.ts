@@ -99,6 +99,30 @@ export function sendDispositionReleased(client: ClientConnection, channel: numbe
   sendBinary(client, encodeAmqpFrame(channel, performative));
 }
 
+export function sendDispositionRejected(
+  client: ClientConnection,
+  channel: number,
+  deliveryId: number,
+  condition: string,
+  description?: string,
+): void {
+  const errorFields: Uint8Array[] = [encodeSymbol(condition)];
+  if (description) {
+    errorFields.push(encodeString(description));
+  }
+
+  const rejectedState = encodeDescribedList(0x25, [encodeDescribedList(0x1d, errorFields)]);
+  const performative = encodeDescribedList(0x15, [
+    encodeBoolean(true),
+    encodeUInt(deliveryId),
+    encodeUInt(deliveryId),
+    encodeBoolean(true),
+    rejectedState,
+  ]);
+
+  sendBinary(client, encodeAmqpFrame(channel, performative));
+}
+
 export function sendClose(
   client: ClientConnection,
   channel: number,
