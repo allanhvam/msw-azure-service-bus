@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { getMaxMessageSizeBytes } from "../amqp/messages/message-size.js";
 import {
   connectionString,
   createClient,
@@ -68,6 +69,58 @@ describe("Service Bus emulator integration - basic messaging", () => {
     const receivedById = new Map(received.map((message) => [message.messageId, message.body]));
     assert.equal(receivedById.get("message-2"), "body-2");
     assert.equal(receivedById.get("message-3"), "body-3");
+  });
+
+  test("creates and sends a message batch", { timeout: 20000 }, async () => {
+    const testQueue = makeQueueName("batch");
+    const client = createClient(connectionString);
+    const sender = client.createSender(testQueue);
+
+    try {
+      const batch = await sender.createMessageBatch();
+
+      assert.equal(batch.maxSizeInBytes, 256 * 1024);
+      assert.equal(batch.tryAddMessage({ messageId: "batch-1", body: "first" }), true);
+      assert.equal(batch.tryAddMessage({ messageId: "batch-2", body: "second" }), true);
+      await sender.sendMessages(batch);
+    } finally {
+      await sender.close();
+      await client.close();
+    }
+
+    const received = await receiveFromQueue(connectionString, testQueue, 2, 10000);
+    assert.deepEqual(
+      received.map((message) => ({ messageId: message.messageId, body: message.body })),
+      [
+        { messageId: "batch-1", body: "first" },
+        { messageId: "batch-2", body: "second" },
+      ],
+    );
+  });
+
+  test("tryAddMessage rejects a message exceeding the 256 KB batch size", { timeout: 20000 }, async () => {
+    const testQueue = makeQueueName("batch-oversized");
+    const client = createClient(connectionString);
+    const sender = client.createSender(testQueue);
+
+    try {
+      const batch = await sender.createMessageBatch();
+      const oversizedBody = "x".repeat(getMaxMessageSizeBytes("basic"));
+
+      assert.equal(batch.maxSizeInBytes, 256 * 1024);
+      assert.equal(batch.tryAddMessage({ messageId: "batch-oversized", body: oversizedBody }), false);
+      assert.equal(batch.count, 0);
+      assert.equal(batch.tryAddMessage({ messageId: "batch-valid", body: "fits" }), true);
+      await sender.sendMessages(batch);
+    } finally {
+      await sender.close();
+      await client.close();
+    }
+
+    const received = await receiveFromQueue(connectionString, testQueue, 1, 10000);
+    assert.equal(received.length, 1);
+    assert.equal(received[0].messageId, "batch-valid");
+    assert.equal(received[0].body, "fits");
   });
 
   test("empty queue receive returns zero messages", { timeout: 20000 }, async () => {

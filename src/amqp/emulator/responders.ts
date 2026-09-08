@@ -11,6 +11,7 @@ import {
   encodeSymbolArray,
   encodeUByte,
   encodeUInt,
+  encodeULong,
   encodeUShort,
   toArrayBuffer,
 } from "../codec.js";
@@ -179,7 +180,12 @@ export function sendSaslOutcome(client: ClientConnection): void {
   sendBinary(client, encodeAmqpFrame(0, performative, 1));
 }
 
-export function sendAttachResponse(client: ClientConnection, channel: number, attach: ParsedAttach): void {
+export function sendAttachResponse(
+  client: ClientConnection,
+  channel: number,
+  attach: ParsedAttach,
+  maxMessageSizeBytes: number,
+): void {
   const handleValue = attach.handle ?? 0;
   const responseRole = !(attach.role ?? false);
 
@@ -231,6 +237,10 @@ export function sendAttachResponse(client: ClientConnection, channel: number, at
     encodeUByte(0),
     source,
     target,
+    encodeNull(),
+    encodeNull(),
+    encodeNull(),
+    encodeULong(maxMessageSizeBytes),
   ]);
 
   sendBinary(client, encodeAmqpFrame(channel, performative));
