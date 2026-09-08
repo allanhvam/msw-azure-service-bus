@@ -25,6 +25,21 @@ export function encodeUInt(value: number): Uint8Array {
   return new Uint8Array([0x70, (value >>> 24) & 0xff, (value >>> 16) & 0xff, (value >>> 8) & 0xff, value & 0xff]);
 }
 
+export function encodeULong(value: number): Uint8Array {
+  if (value === 0) {
+    return new Uint8Array([0x44]);
+  }
+
+  if (value > 0 && value <= 0xff) {
+    return new Uint8Array([0x53, value]);
+  }
+
+  const bytes = new Uint8Array(9);
+  bytes[0] = 0x80;
+  new DataView(bytes.buffer).setBigUint64(1, BigInt(value));
+  return bytes;
+}
+
 export function encodeString(value: string): Uint8Array {
   const valueBytes = textEncoder.encode(value);
 

@@ -5,6 +5,7 @@ import { setupServer } from "msw/node";
 import { handlers, type ServiceBusOptions } from "../handlers.js";
 import { getMaxMessageSizeBytes } from "../amqp/messages/message-size.js";
 import {
+  createClient,
   createConnectionString,
   makeQueueName,
   receiveFromQueue,
@@ -30,6 +31,20 @@ describe("Service Bus emulator tier quotas", () => {
 
   function useHandlers(options?: ServiceBusOptions): void {
     mockServer?.resetHandlers(...handlers({ options: { ...emulatorOptions, ...options } }));
+  }
+
+  async function assertBatchMaxSize(expectedSizeInBytes: number): Promise<void> {
+    const testQueue = makeQueueName("tier-batch-limit");
+    const client = createClient(createConnectionString(testQueue));
+    const sender = client.createSender(testQueue);
+
+    try {
+      const batch = await sender.createMessageBatch();
+      assert.equal(batch.maxSizeInBytes, expectedSizeInBytes);
+    } finally {
+      await sender.close();
+      await client.close();
+    }
   }
 
   describe("basic tier", () => {
@@ -62,6 +77,10 @@ describe("Service Bus emulator tier quotas", () => {
       assert.equal(messages.length, 1);
       assert.equal(messages[0].body, withinLimitBody);
     });
+
+    test("creates batches with a 256 KB maximum size", async () => {
+      await assertBatchMaxSize(256 * 1024);
+    });
   });
 
   describe("premium tier", () => {
@@ -80,6 +99,10 @@ describe("Service Bus emulator tier quotas", () => {
       assert.equal(messages.length, 1);
       assert.equal(messages[0].body, largeBody);
     });
+
+    test("creates batches with a 100 MB maximum size", async () => {
+      await assertBatchMaxSize(100 * 1024 * 1024);
+    });
   });
 
   describe("standard tier", () => {
@@ -96,6 +119,10 @@ describe("Service Bus emulator tier quotas", () => {
         sendToQueue(connectionString, testQueue, [{ messageId: "standard-oversized", body: oversizedBody }]),
         (error: unknown) => error instanceof ServiceBusError && error.code === "MessageSizeExceeded",
       );
+    });
+
+    test("creates batches with a 256 KB maximum size", async () => {
+      await assertBatchMaxSize(256 * 1024);
     });
   });
 

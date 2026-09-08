@@ -909,7 +909,7 @@ export class AmqpProtocolEmulator {
         this.logDebug("[MSW AMQP] managementLink", { channel, role: attach.role, handle: attach.handle });
       }
 
-      sendAttachResponse(client, channel, attach);
+      sendAttachResponse(client, channel, attach, this.getMaxMessageSizeBytes());
 
       if ((attach.role ?? false) === false) {
         sendLinkFlow(client, channel, attach.handle, 0, 1000);
